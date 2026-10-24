@@ -59,7 +59,7 @@
   const form = document.getElementById("gb-form");
   const btn = document.getElementById("gb-btn");
 
-  if (firebaseConfig.apiKey === "AIzaSyBV4QchF4sfHYnYD080xYNBs5PmpHPLyls") {
+  if (!firebaseConfig.apiKey || firebaseConfig.apiKey.startsWith("PASTE_")) {
     connEl.innerHTML = "⚠️ Firebase belum disambung — config masih placeholder.";
     entriesEl.innerHTML = "<p class='empty'>Demo akan hidup bila config Firebase dimasukkan.</p>";
     btn.disabled = true;
