@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Guestbook Demo — Cloudflare × Firebase</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; padding: 24px 16px 64px; }
+  .wrap { max-width: 640px; margin: 0 auto; }
+  h1 { font-size: 1.6rem; margin-bottom: 4px; }
+  .sub { color: #94a3b8; margin-bottom: 20px; line-height: 1.5; }
+  .badge { display: inline-block; background: #1e293b; border: 1px solid #334155; border-radius: 999px; padding: 4px 12px; font-size: 0.8rem; color: #7dd3fc; margin-bottom: 20px; }
+  .badge b { color: #fbbf24; }
+  form { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 16px; margin-bottom: 24px; }
+  input, textarea { width: 100%; background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #e2e8f0; padding: 10px 12px; font-size: 1rem; margin-bottom: 10px; }
+  textarea { min-height: 80px; resize: vertical; }
+  button { background: #f59e0b; color: #1e293b; border: none; border-radius: 8px; padding: 10px 20px; font-size: 1rem; font-weight: 700; cursor: pointer; }
+  button:disabled { opacity: 0.5; cursor: wait; }
+  #status { font-size: 0.9rem; color: #94a3b8; margin-top: 10px; min-height: 1.2em; }
+  .entry { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; }
+  .entry .who { font-weight: 700; color: #fbbf24; }
+  .entry .when { font-size: 0.8rem; color: #64748b; margin-left: 8px; }
+  .entry p { margin-top: 6px; line-height: 1.5; white-space: pre-wrap; }
+  .empty { color: #64748b; text-align: center; padding: 24px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📖 Guestbook Demo</h1>
+  <p class="sub">Website ni dihos di <b>Cloudflare Pages</b>, tapi mesej yang you tulis disimpan dalam <b>Firebase Firestore</b> — dan muncul di sini secara realtime.</p>
+  <div class="badge" id="conn">Menyambung ke Firebase…</div>
+  <form id="gb-form">
+    <input id="gb-name" type="text" placeholder="Nama you" maxlength="50" required>
+    <textarea id="gb-msg" placeholder="Tulis mesej…" maxlength="500" required></textarea>
+    <button id="gb-btn" type="submit">Hantar mesej</button>
+    <div id="status"></div>
+  </form>
+  <div id="entries"><p class="empty">Memuatkan mesej…</p></div>
+</div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getFirestore, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  // ⬇️ Firebase web config — diisi dari Firebase console (Project settings → Your apps → Web app)
+  const firebaseConfig = {
+    apiKey: "AIzaSyBV4QchF4sfHYnYD080xYNBs5PmpHPLyls",
+    authDomain: "lankapo-demo.firebaseapp.com",
+    projectId: "lankapo-demo",
+    storageBucket: "lankapo-demo.firebasestorage.app",
+    messagingSenderId: "978618046888",
+    appId: "1:978618046888:web:8dc2c05ed65ec0a863659d"
+  };
+
+  const connEl = document.getElementById("conn");
+  const entriesEl = document.getElementById("entries");
+  const statusEl = document.getElementById("status");
+  const form = document.getElementById("gb-form");
+  const btn = document.getElementById("gb-btn");
+
+  if (firebaseConfig.apiKey === "AIzaSyBV4QchF4sfHYnYD080xYNBs5PmpHPLyls") {
+    connEl.innerHTML = "⚠️ Firebase belum disambung — config masih placeholder.";
+    entriesEl.innerHTML = "<p class='empty'>Demo akan hidup bila config Firebase dimasukkan.</p>";
+    btn.disabled = true;
+  } else {
+    try {
+      const app = initializeApp(firebaseConfig);
+      const db = getFirestore(app);
+      connEl.innerHTML = "🟢 Bersambung — <b>Cloudflare Pages</b> × <b>Firebase Firestore</b>";
+      const q = query(collection(db, "guestbook"), orderBy("createdAt", "desc"));
+      onSnapshot(q, (snap) => {
+        if (snap.empty) { entriesEl.innerHTML = "<p class='empty'>Belum ada mesej — jadilah yang pertama!</p>"; return; }
+        entriesEl.innerHTML = "";
+        snap.forEach((doc) => {
+          const d = doc.data();
+          const when = d.createdAt && d.createdAt.toDate ? d.createdAt.toDate().toLocaleString("ms-MY") : "";
+          const div = document.createElement("div");
+          div.className = "entry";
+          div.innerHTML = "";
+          const who = document.createElement("span"); who.className = "who"; who.textContent = d.name || "Tanpa nama";
+          const w = document.createElement("span"); w.className = "when"; w.textContent = when;
+          const p = document.createElement("p"); p.textContent = d.message || "";
+          div.append(who, w, p);
+          entriesEl.appendChild(div);
+        });
+      }, (err) => {
+        entriesEl.innerHTML = "<p class='empty'>Tak dapat baca Firestore: " + err.message + "</p>";
+      });
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const name = document.getElementById("gb-name").value.trim();
+        const message = document.getElementById("gb-msg").value.trim();
+        if (!name || !message) return;
+        btn.disabled = true;
+        statusEl.textContent = "Menghantar…";
+        try {
+          await addDoc(collection(db, "guestbook"), { name, message, createdAt: serverTimestamp() });
+          form.reset();
+          statusEl.textContent = "✅ Mesej disimpan dalam Firestore!";
+        } catch (err) {
+          statusEl.textContent = "❌ Gagal hantar: " + err.message;
+        }
+        btn.disabled = false;
+      });
+    } catch (err) {
+      connEl.textContent = "🔴 Gagal sambung Firebase: " + err.message;
+    }
+  }
+</script>
+</body>
+</html>
